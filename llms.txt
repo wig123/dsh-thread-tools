@@ -1,0 +1,55 @@
+# dsh-thread-tools
+
+> DeepSeek Harness plugin. Gives a session access to the deployment's other top-level sessions: list, search, message, read a reply, create, fork.
+
+Package: `@wig123/dsh-thread-tools`
+Repo: https://github.com/wig123/dsh-thread-tools
+Language: TypeScript, ESM, Node 22+
+License: MIT
+Host floor: `dsh.engines.dsh >= 0.1.2-rc.1`
+Install: `dsh plugin --profile web add @wig123/dsh-thread-tools`
+Git install: `dsh plugin --profile web add github:wig123/dsh-thread-tools`
+
+## What it registers
+
+| Tool | Input | Result |
+| --- | --- | --- |
+| `thread_list` | `query?`, `limit?` | `{ total, shown, sessions: [{ sessionId, title, cwd, createdAt, live, current }] }` |
+| `thread_search` | `query`, `limit?` | `{ available, reason?, hits: [{ sessionId, title, seq, excerpt }] }` |
+| `thread_send` | `session_id`, `message` | `{ delivery: delivered \| dormant \| unknown-session \| subagent-session \| self, targetSessionId, messageId? }` |
+| `thread_reply` | `session_id`, `wait_ms?` | `{ status: reply \| no-reply \| unknown-session \| self \| subagent-session, text?, turn?, seq? }` |
+| `thread_create` | `cwd?`, `agent_preset?` | `{ status: created \| rejected, sessionId?, reason? }` |
+| `thread_fork` | `session_id`, `at_seq?` | `{ status: forked \| unknown-session \| self \| subagent-session \| no-completed-turn \| rejected, sessionId?, inheritedEvents?, atSeq? }` |
+
+All results exclude subagent-owned sessions. Tool names are configurable.
+
+## Services it reads
+
+- `ctx.sessionPersistence` (required) — enumerates sessions, inspects a log for a reply or a fork seed.
+- `ctx.agents` (required) — resolves a live session's agent, creates sessions.
+- `ctx.sessionQuery` (optional) — titles and full-text search.
+
+Services resolve per execution from the calling agent's own scope, not at plugin load.
+
+## Behavior worth knowing before integrating
+
+- A message reaches only a session with a live agent in the same process. Dormant targets return `dormant`; the plugin never revives a session by itself.
+- A relayed message is recorded with `source.kind = "plugin"` under `@wig123/dsh-thread-tools`, and its text is framed as peer content, not user input.
+- `thread_reply` returns the newest assistant message containing text; it may predate the caller's message.
+- `thread_fork` accepts only a balanced completed-turn prefix and refuses (rather than truncates) a prefix above `maxForkSeedChars`.
+- Created and forked sessions inherit the calling session's model route.
+
+## Verify it yourself
+
+```sh
+npm install --legacy-peer-deps && npm run build
+node dev/verify.mjs <profileName>
+```
+
+`dev/verify.mjs` boots a real dsh profile's composed entry tree against the real session store and drives the tools through `ctx.tools.execute`. `dev/stub-adapter.mjs` registers a scripted LLM adapter so a real model-driven turn runs without an API key. 24/24 checks pass, verified both on a local profile and on a profile that installed the package from GitHub.
+
+## Not implemented
+
+- Reviving a dormant session from inside a tool call.
+- Per-message question/answer correlation.
+- Waiting for a specific message rather than for the target to go idle.
