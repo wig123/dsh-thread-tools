@@ -1,6 +1,6 @@
 # dsh-thread-tools
 
-> DeepSeek Harness plugin. Gives a session access to the deployment's other top-level sessions: list, search, message, read a reply, create, fork.
+> DeepSeek Harness plugin. The equivalent of Codex's thread tools for top-level sessions: list them, search them, message one, read its reply, create one, fork one. A subagent works underneath its caller; these tools work sideways, across the sessions a person has open.
 
 Package: `@wig123/dsh-thread-tools`
 Repo: https://github.com/wig123/dsh-thread-tools
