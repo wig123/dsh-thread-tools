@@ -1,0 +1,7 @@
+# This patch makes the package a profile layer: installing the package is
+# enough for `dsh` to mount the plugin. Row order is documentary; activation
+# waits for the services the plugin injects.
+
+- insert:
+    - id: thread-tools
+      name: '@wig123/dsh-thread-tools'
