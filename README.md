@@ -30,6 +30,8 @@ Straight from the repository, which needs no build step because the compiled out
 dsh plugin --profile web add github:wig123/dsh-thread-tools
 ```
 
+The package declares its host floor as `dsh.engines.dsh: ">=0.1.2-rc.1"`, the released line it is verified against.
+
 Restart that profile: bundle membership is read at start. Then ask the model to list the sessions, or to send a message to one of them.
 
 Remove it with `dsh plugin --profile web remove @wig123/dsh-thread-tools`.
