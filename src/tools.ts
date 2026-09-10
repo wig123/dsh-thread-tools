@@ -14,6 +14,7 @@ import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 
 import { asSessionId, deliverThreadMessage } from './relay.js'
+import { createThread, forkThread } from './session-create.js'
 import { collectThreads, searchThreads, servicesFor, type ThreadSessionItem, type ThreadToolServices } from './session-state.js'
 
 /** Resolved deployment policy for the thread tools. */
@@ -24,6 +25,10 @@ export interface ThreadToolsConfig {
   readonly searchToolName: string
   /** Registered name of the cross-session message tool. */
   readonly sendToolName: string
+  /** Registered name of the session creation tool. */
+  readonly createToolName: string
+  /** Registered name of the session fork tool. */
+  readonly forkToolName: string
   /** Default maximum rows returned by one listing call. */
   readonly defaultLimit: number
   /** Hard maximum rows one call may request; bounds the prompt cost of a listing. */
@@ -34,6 +39,8 @@ export interface ThreadToolsConfig {
   readonly maxSearchLimit: number
   /** Length bound for one relayed message body. */
   readonly maxMessageChars: number
+  /** Upper bound on the seed a fork may inherit from one source session. */
+  readonly maxForkSeedChars: number
 }
 
 /** Default policy; a deployment overrides these through plugin config. */
@@ -41,11 +48,14 @@ export const DEFAULT_THREAD_TOOLS_CONFIG: ThreadToolsConfig = Object.freeze({
   listToolName: 'thread_list',
   searchToolName: 'thread_search',
   sendToolName: 'thread_send',
+  createToolName: 'thread_create',
+  forkToolName: 'thread_fork',
   defaultLimit: 30,
   maxLimit: 200,
   defaultSearchLimit: 20,
   maxSearchLimit: 100,
   maxMessageChars: 8000,
+  maxForkSeedChars: 2_000_000,
 })
 
 /** One row of the thread listing result. */
@@ -79,6 +89,23 @@ interface ThreadSearchValue {
   /** Why content search is unavailable, when the deployment disabled it. */
   reason?: string
   hits: ThreadSearchRow[]
+}
+
+/** Canonical result of the session creation tool. */
+interface ThreadCreateValue {
+  status: 'created' | 'rejected'
+  sessionId?: string
+  reason?: string
+}
+
+/** Canonical result of the session fork tool. */
+interface ThreadForkValue {
+  status: 'forked' | 'unknown-session' | 'self' | 'subagent-session' | 'no-completed-turn' | 'rejected'
+  sourceSessionId: string
+  sessionId?: string
+  inheritedEvents?: number
+  atSeq?: number
+  reason?: string
 }
 
 /** Canonical result of the cross-session message tool. */
@@ -147,6 +174,56 @@ const THREAD_SEND_SCHEMA = {
     },
     targetSessionId: { type: 'string' as const, required: true as const },
     messageId: { type: 'string' as const },
+  },
+}
+
+const THREAD_CREATE_SCHEMA = {
+  type: 'object' as const,
+  additionalProperties: true,
+  properties: {
+    status: { type: 'string' as const, required: true as const, enum: ['created', 'rejected'] },
+    sessionId: { type: 'string' as const, description: 'Durable id of the new session, when it was created.' },
+    reason: { type: 'string' as const, description: 'Why creation was refused, when it was.' },
+  },
+}
+
+const THREAD_FORK_SCHEMA = {
+  type: 'object' as const,
+  additionalProperties: true,
+  properties: {
+    status: {
+      type: 'string' as const,
+      required: true as const,
+      enum: ['forked', 'unknown-session', 'self', 'subagent-session', 'no-completed-turn', 'rejected'],
+    },
+    sourceSessionId: { type: 'string' as const, required: true as const },
+    sessionId: { type: 'string' as const, description: 'Durable id of the forked session, when the fork succeeded.' },
+    inheritedEvents: { type: 'integer' as const, description: 'Number of inherited events in the fork seed.' },
+    atSeq: { type: 'integer' as const, description: 'Highest inherited event sequence.' },
+    reason: { type: 'string' as const, description: 'Why the fork was refused, when it was.' },
+  },
+}
+
+const CREATE_PARAMETERS = {
+  cwd: {
+    type: 'string' as const,
+    description: 'Absolute working directory for the new session. Omit to inherit the calling session working directory.',
+  },
+  agent_preset: {
+    type: 'string' as const,
+    description: 'Agent preset for the new session. Omit to let the deployment choose.',
+  },
+}
+
+const FORK_PARAMETERS = {
+  session_id: {
+    type: 'string' as const,
+    required: true as const,
+    description: 'Exact source session id as reported by the thread listing tool.',
+  },
+  at_seq: {
+    type: 'integer' as const,
+    description: 'Exclusive event-sequence bound; the fork keeps completed turns before it. Omit to keep every completed turn.',
   },
 }
 
@@ -261,6 +338,32 @@ function searchUnavailableReason(error: unknown): string | undefined {
   if (codeOf(error) !== disabledCode && codeOf(cause) !== disabledCode) return undefined
   const message = error instanceof Error ? error.message : undefined
   return message ?? 'the session content index is disabled'
+}
+
+function renderCreate(value: ThreadCreateValue): string {
+  switch (value.status) {
+    case 'created':
+      return `Created session ${value.sessionId}. It starts empty and unprompted; list the sessions to see it.`
+    case 'rejected':
+      return `The session was not created: ${value.reason}`
+  }
+}
+
+function renderFork(value: ThreadForkValue): string {
+  switch (value.status) {
+    case 'forked':
+      return `Forked ${value.sourceSessionId} into session ${value.sessionId}, inheriting ${String(value.inheritedEvents)} events through seq ${String(value.atSeq)}. The new session starts unprompted.`
+    case 'unknown-session':
+      return `No session with id ${value.sourceSessionId} exists.`
+    case 'self':
+      return 'A session cannot be forked from itself.'
+    case 'subagent-session':
+      return `Session ${value.sourceSessionId} belongs to a subagent, so it is not addressable as a thread.`
+    case 'no-completed-turn':
+      return `Session ${value.sourceSessionId} has no completed turn to fork.`
+    case 'rejected':
+      return `The session was not forked: ${value.reason}`
+  }
 }
 
 function clampLimit(requested: unknown, fallback: number, maximum: number): number {
@@ -428,5 +531,88 @@ export function createThreadToolDefinitions(config: ThreadToolsConfig): ToolDefi
     },
   })
 
-  return [listTool, searchTool, sendTool]
+
+  const createTool = defineTool({
+    name: config.createToolName,
+    description: [
+      'Create one new empty top-level session and return its durable id.',
+      'The new session is persisted and idle: it appears in the session list and the UI immediately, and nothing prompts it.',
+      'Use the thread listing tool afterwards if you need to see it in context.',
+    ].join(' '),
+    parameters: CREATE_PARAMETERS,
+    output: {
+      schema: THREAD_CREATE_SCHEMA,
+      render: (_args, value: ThreadCreateValue) => [{ type: 'text', text: renderCreate(value) }],
+    },
+    async execute(args, exec) {
+      const cwd = typeof args.cwd === 'string' && args.cwd.trim().length > 0 ? args.cwd.trim() : undefined
+      const agentPreset = typeof args.agent_preset === 'string' && args.agent_preset.trim().length > 0
+        ? args.agent_preset.trim()
+        : undefined
+      const services = requireServices(exec)
+      const caller = callerSessionId(exec)
+      if (caller === undefined) throw new Error('This tool needs a calling session; agentless calls are not supported.')
+      try {
+        const outcome = await createThread({
+          agents: services.agents,
+          sessions: services.sessions,
+          callerSessionId: caller,
+          ...(cwd === undefined ? {} : { cwd }),
+          ...(agentPreset === undefined ? {} : { agentPreset }),
+        })
+        return outcome.status === 'created'
+          ? { status: 'created' as const, sessionId: outcome.sessionId }
+          : { status: 'rejected' as const, reason: outcome.reason }
+      } catch (error) {
+        return { status: 'rejected' as const, reason: error instanceof Error ? error.message : String(error) }
+      }
+    },
+  })
+
+  const forkTool = defineTool({
+    name: config.forkToolName,
+    description: [
+      'Fork an existing session into a new one, inheriting its completed turns up to an optional event-sequence bound.',
+      'The fork keeps the source working directory and lineage, and starts unprompted.',
+      'Only a completed turn can be a fork boundary, so a source with no finished turn cannot be forked.',
+    ].join(' '),
+    parameters: FORK_PARAMETERS,
+    output: {
+      schema: THREAD_FORK_SCHEMA,
+      render: (_args, value: ThreadForkValue) => [{ type: 'text', text: renderFork(value) }],
+    },
+    async execute(args, exec) {
+      const sourceId = typeof args.session_id === 'string' ? args.session_id.trim() : ''
+      if (sourceId.length === 0) throw new Error('The source session id must not be empty.')
+      const atSeq = typeof args.at_seq === 'number' && Number.isFinite(args.at_seq) ? Math.floor(args.at_seq) : undefined
+      const services = requireServices(exec)
+      const caller = callerSessionId(exec)
+      if (caller === undefined) throw new Error('This tool needs a calling session; agentless calls are not supported.')
+      const source = asSessionId(sourceId)
+      const outcome = await forkThread({
+        agents: services.agents,
+        sessions: services.sessions,
+        callerSessionId: caller,
+        sourceSessionId: source,
+        maxSeedChars: config.maxForkSeedChars,
+        ...(atSeq === undefined ? {} : { atSeq }),
+      })
+      switch (outcome.status) {
+        case 'forked':
+          return {
+            status: 'forked' as const,
+            sourceSessionId: sourceId,
+            sessionId: outcome.sessionId,
+            inheritedEvents: outcome.inheritedEvents,
+            atSeq: outcome.atSeq,
+          }
+        case 'rejected':
+          return { status: 'rejected' as const, sourceSessionId: sourceId, reason: outcome.reason }
+        default:
+          return { status: outcome.status, sourceSessionId: sourceId }
+      }
+    },
+  })
+
+  return [listTool, searchTool, sendTool, createTool, forkTool]
 }

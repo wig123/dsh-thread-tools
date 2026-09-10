@@ -147,32 +147,26 @@ export function servicesFor(exec: { readonly agent?: { readonly ctx: Context } }
   const agents = scope.get('agents')
   if (sessions === undefined || agents === undefined) return undefined
   return query === undefined
-    ? { sessions: bindPersistence(sessions), agents: bindAgents(agents) }
-    : { sessions: bindPersistence(sessions), agents: bindAgents(agents), query }
+    ? { sessions: bindService(sessions), agents: bindService(agents) }
+    : { sessions: bindService(sessions), agents: bindService(agents), query }
 }
 
 /**
- * Bind the persistence calls these tools use to their service instance.
+ * Bind a service's methods to its own instance.
  *
- * A scoped service is a proxy whose members reach a tool through the scope's
- * lookup, so an unbound method can run with the receiver dropped. Binding here
- * keeps one object identity per resolution and hands the tools callable slices.
- * @param persistence - service instance resolved from the calling scope.
- * @returns the slice of persistence calls this plugin consumes.
+ * A service resolved from a scope reaches a tool through the scope's lookup, so
+ * an unbound method can run with the receiver dropped. Handing back a proxy that
+ * binds every function member keeps one identity per resolution and lets the
+ * tools call any declared method without enumerating it here.
+ * @param service - service instance resolved from the calling scope.
+ * @returns the same service with its methods bound to it.
  */
-export function bindPersistence(persistence: SessionPersistence): SessionPersistence {
-  const list = persistence.list.bind(persistence)
-  return Object.assign(Object.create(Object.getPrototypeOf(persistence) as object) as SessionPersistence, persistence, { list })
-}
-
-/**
- * Bind the registry calls these tools use to their service instance.
- * @param agents - live agent registry resolved from the calling scope.
- * @returns the slice of registry calls this plugin consumes.
- */
-function bindAgents(agents: AgentRegistry): AgentRegistry {
-  return Object.assign(Object.create(Object.getPrototypeOf(agents) as object) as AgentRegistry, agents, {
-    get: agents.get.bind(agents),
+export function bindService<T extends object>(service: T): T {
+  return new Proxy(service, {
+    get(target, property, receiver) {
+      const value = Reflect.get(target, property, receiver) as unknown
+      return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value
+    },
   })
 }
 

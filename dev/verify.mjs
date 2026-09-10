@@ -74,6 +74,10 @@ try {
   record('plugin registers thread_list', listName === 'thread_list', `tool names: ${names.join(', ')}`)
   record('plugin registers thread_search', searchName === 'thread_search')
   record('plugin registers thread_send', sendName === 'thread_send')
+  const createName = names.find(name => name === 'thread_create')
+  const forkName = names.find(name => name === 'thread_fork')
+  record('plugin registers thread_create', createName === 'thread_create')
+  record('plugin registers thread_fork', forkName === 'thread_fork')
   if (listName === undefined || sendName === undefined) throw new Error('thread tools are not registered')
 
   const callTool = async (agent, name, args) => {
@@ -141,6 +145,28 @@ try {
     search.isError === false && search.value?.available === false && typeof search.value?.reason === 'string',
     `available=${search.value?.available} reason=${search.value?.reason}`,
   )
+
+  // --- session creation and forking ---
+  const created = await callTool(source, createName, { cwd: process.cwd() })
+  record('thread_create reports a new session', created.value?.status === 'created' && typeof created.value?.sessionId === 'string', JSON.stringify(created.value))
+  const createdId = created.value?.sessionId
+  if (typeof createdId === 'string') {
+    const listedAfterCreate = await callTool(source, listName, { query: createdId, limit: 5 })
+    const row = (listedAfterCreate.value?.sessions ?? []).find(entry => entry.sessionId === createdId)
+    record('the new session is a listed top-level session', row !== undefined, `row=${JSON.stringify(row)}`)
+    record('the new session inherits the requested cwd', row?.cwd === process.cwd(), `cwd=${row?.cwd}`)
+  }
+
+  const forked = await callTool(source, forkName, { session_id: target.id })
+  record(
+    'thread_fork inherits the completed turns of a live session',
+    forked.value?.status === 'forked' && forked.value?.inheritedEvents > 0,
+    JSON.stringify(forked.value),
+  )
+  const forkUnknown = await callTool(source, forkName, { session_id: 'session-does-not-exist' })
+  record('forking an unknown session is refused', forkUnknown.value?.status === 'unknown-session', JSON.stringify(forkUnknown.value))
+  const forkSelf = await callTool(source, forkName, { session_id: source.id })
+  record('forking the calling session is refused', forkSelf.value?.status === 'self', JSON.stringify(forkSelf.value))
 
   const filtered = await callTool(source, listName, { query: target.id, limit: 5 })
   record(

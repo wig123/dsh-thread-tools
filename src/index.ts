@@ -26,11 +26,14 @@ export const Config = Schema.object({
   listToolName: Schema.string().default(DEFAULT_THREAD_TOOLS_CONFIG.listToolName),
   searchToolName: Schema.string().default(DEFAULT_THREAD_TOOLS_CONFIG.searchToolName),
   sendToolName: Schema.string().default(DEFAULT_THREAD_TOOLS_CONFIG.sendToolName),
+  createToolName: Schema.string().default(DEFAULT_THREAD_TOOLS_CONFIG.createToolName),
+  forkToolName: Schema.string().default(DEFAULT_THREAD_TOOLS_CONFIG.forkToolName),
   defaultLimit: Schema.number().step(1).min(1).max(1000).default(DEFAULT_THREAD_TOOLS_CONFIG.defaultLimit),
   maxLimit: Schema.number().step(1).min(1).max(1000).default(DEFAULT_THREAD_TOOLS_CONFIG.maxLimit),
   defaultSearchLimit: Schema.number().step(1).min(1).max(1000).default(DEFAULT_THREAD_TOOLS_CONFIG.defaultSearchLimit),
   maxSearchLimit: Schema.number().step(1).min(1).max(1000).default(DEFAULT_THREAD_TOOLS_CONFIG.maxSearchLimit),
   maxMessageChars: Schema.number().step(1).min(1).max(1_000_000).default(DEFAULT_THREAD_TOOLS_CONFIG.maxMessageChars),
+  maxForkSeedChars: Schema.number().step(1).min(1).max(100_000_000).default(DEFAULT_THREAD_TOOLS_CONFIG.maxForkSeedChars),
 })
 /* eslint-enable @typescript-eslint/no-unsafe-assignment */
 
