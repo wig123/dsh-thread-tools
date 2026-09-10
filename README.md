@@ -188,12 +188,23 @@ Two of the checks drive the tools the way a model does rather than by calling `c
 - **Listing reads session metadata, not transcripts.** Use `thread_search` for content, and only where the deployment runs a content index.
 - `sessionPersistence.list()` and the cancel argument of `thread_search` differ across DSH release lines; both call shapes are handled, and the behavior is verified against one line at a time.
 
+## Release
+
+```bash
+npm adduser                 # once per machine
+npm run build
+npm publish --access public
+```
+
+`prepublishOnly` rebuilds `lib/` first, and `lib/` stays committed so a git-hosted install needs no build.
+
 ## Development
 
 ```bash
 npm install --legacy-peer-deps
 npm run build        # tsc -> lib/
 npm run typecheck
+node dev/verify.mjs <profileName>   # needs a profile with the plugin installed
 ```
 
 `lib/` is generated and git-ignored; `npm pack` ships it.
