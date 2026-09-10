@@ -11,6 +11,7 @@ The package registers three model-facing tools:
 | `thread_send` | Delivers a message to another live session by id. The message becomes one pending ordinary turn on that session and is attributed to this plugin, not to the human at that session. Reports delivery only; the target answers in its own session. |
 | `thread_create` | Creates one fresh, empty, idle top-level session and returns its durable id. Optionally sets the working directory and agent preset. |
 | `thread_fork` | Forks an existing session into a new one, inheriting its completed turns up to an optional event-sequence bound, along with the working directory and lineage. The fork starts unprompted. |
+| `thread_reply` | Reads the latest assistant message of another session by id, optionally waiting first for that session to finish its current turn. This is what closes the loop after a delivery. |
 
 Subagent-owned sessions are excluded from every result: this plugin is about the sessions a person opens, not about an agent's children.
 
@@ -58,6 +59,14 @@ thread_fork({"session_id": "session-4a1c…"})
 Forked session-4a1c… into session session-7c31…, inheriting 42 events through seq 41. The new session starts unprompted.
 ```
 
+Waiting for the answer:
+
+```text
+thread_reply({"session_id": "session-4a1c…", "wait_ms": 30000})
+Latest message from session session-4a1c… (turn 3, seq 57):
+Rebased and reran the suite; two fixtures needed the new path.
+```
+
 A delivery:
 
 ```text
@@ -80,6 +89,10 @@ The migration is done; rebase before you continue.
 `thread_create` stores a real session and starts an idle agent for it, then leaves it alone: nothing prompts it. It is immediately visible to `thread_list` and in the UI.
 
 `thread_fork` copies a *completed-turn prefix* of the source log, because the harness accepts only a balanced prefix — no open turn, step, or dangling tool call. The prefix ends at the last `turn/end` before `at_seq`, or at the last one in the log when `at_seq` is omitted. A source with no finished turn reports `no-completed-turn`. A prefix above `maxForkSeedChars` is refused rather than silently truncated.
+
+## Reply semantics
+
+`thread_reply` reads what a target session last said. It waits for that session's current turn to finish first (bounded by `wait_ms`), then scans the target's stored log backwards for the newest assistant message that actually contains text — a target that has only run tools reports `no-reply` rather than a tool call. A message that predates the wait is returned as-is; the tool reports what is there, not what arrived after the call.
 
 ## Delivery model
 
@@ -112,6 +125,10 @@ Every tool name and bound is deployment policy, configurable on the plugin row:
 | `maxSearchLimit` | `100` | Hard cap on hits one search call may request. |
 | `maxMessageChars` | `8000` | Length bound for one message body. |
 | `maxForkSeedChars` | `2000000` | Upper bound on the seed one fork may inherit; a larger prefix is refused with a pointer at `at_seq`. |
+| `replyToolName` | `thread_reply` | Registered tool name for reading a reply. |
+| `defaultReplyWaitMs` | `30000` | Wait for the target to finish its turn when a reply call omits `wait_ms`. |
+| `maxReplyWaitMs` | `120000` | Hard cap on that wait. |
+| `maxReplyChars` | `4000` | Bound on the reply text returned to the model. |
 
 ```yaml
 - id: thread-tools
@@ -139,7 +156,9 @@ ln -s <dsh-install>/node_modules/@deepseek-ai node_modules/@deepseek-ai   # once
 node dev/verify.mjs <profileName>
 ```
 
-Nineteen checks. They pass against a profile whose session store held 274 sessions across 7 projects, and again against a second profile that installed the package from GitHub with `dsh plugin --profile <name> add github:wig123/dsh-thread-tools`. The second run is the one that proves someone else can install this and use it.
+Twenty-four checks. They pass against a profile whose session store held 274 sessions across 7 projects, and again against a second profile that installed the package from GitHub with `dsh plugin --profile <name> add github:wig123/dsh-thread-tools`. The second run is the one that proves someone else can install this and use it.
+
+Two of the checks drive the tools the way a model does rather than by calling `ctx.tools.execute` directly: `dev/stub-adapter.mjs` registers a scripted LLM adapter, so a real agent loop, real tool dispatch, and a real session log run without an API key. The scripted model lists the sessions, messages one of them, and reads the reply; the harness then confirms from durable state that the target logged the message and that the reply text reached the driver.
 
 | Check | Evidence |
 | --- | --- |
@@ -157,11 +176,14 @@ Nineteen checks. They pass against a profile whose session store held 274 sessio
 | Unknown fork source | `status: "unknown-session"` |
 | Fork from self | `status: "self"` |
 | Listing filter | One row, the matching session |
+| A model drives the tools | The scripted model's three requests reach `thread_list`, `thread_send`, and `thread_reply`, and its turn reaches a final answer |
+| A model-issued message lands | The target session's log carries the body the model sent |
+| A model-issued reply returns | The driven session's `tool/result` carries the target's own text |
 
 ## Limitations
 
 - **Only a live target accepts a message.** Reviving a dormant session from inside a tool call is not implemented; the tool reports `dormant` instead of guessing.
-- **Delivery is one-way.** There is no wait-for-reply tool: the target's answer lands in the target's own session and in its log. Codex's `wait_agent` has no equivalent here yet.
+- **A reply is read, not delivered.** `thread_reply` returns the target's latest assistant text, which may predate your message if the target had already answered something else. It is not a per-message correlation of question to answer.
 - **A fork seed is capped**, and the cap is a refusal rather than a truncation, so a very large source needs an explicit `at_seq`.
 - **Listing reads session metadata, not transcripts.** Use `thread_search` for content, and only where the deployment runs a content index.
 - `sessionPersistence.list()` and the cancel argument of `thread_search` differ across DSH release lines; both call shapes are handled, and the behavior is verified against one line at a time.

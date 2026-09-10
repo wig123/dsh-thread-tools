@@ -20,6 +20,8 @@ export interface ThreadToolsConfig {
     readonly createToolName: string;
     /** Registered name of the session fork tool. */
     readonly forkToolName: string;
+    /** Registered name of the reply reading tool. */
+    readonly replyToolName: string;
     /** Default maximum rows returned by one listing call. */
     readonly defaultLimit: number;
     /** Hard maximum rows one call may request; bounds the prompt cost of a listing. */
@@ -32,6 +34,12 @@ export interface ThreadToolsConfig {
     readonly maxMessageChars: number;
     /** Upper bound on the seed a fork may inherit from one source session. */
     readonly maxForkSeedChars: number;
+    /** Default wait, in milliseconds, for a target to finish before its reply is read. */
+    readonly defaultReplyWaitMs: number;
+    /** Hard cap on the wait one reply call may request. */
+    readonly maxReplyWaitMs: number;
+    /** Bound on the reply text returned to the model. */
+    readonly maxReplyChars: number;
 }
 /** Default policy; a deployment overrides these through plugin config. */
 export declare const DEFAULT_THREAD_TOOLS_CONFIG: ThreadToolsConfig;

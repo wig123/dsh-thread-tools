@@ -5,7 +5,7 @@
  * @module @wig123/dsh-thread-tools/session-create
  */
 
-import type { Agent, AgentRegistry } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentOptions, AgentRegistry } from '@deepseek-ai/dsh-agent'
 import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { brandNumber, brandString } from '@deepseek-ai/dsh-brand'
@@ -45,6 +45,8 @@ export interface CreateRequest {
   readonly cwd?: string
   /** Agent preset for a fresh session; omit to let the deployment choose. */
   readonly agentPreset?: string
+  /** Model route the new session starts on; omit to let the deployment choose. */
+  readonly agentOptions?: AgentOptions
 }
 
 /** Fork request. */
@@ -92,6 +94,7 @@ export async function createThread(request: CreateRequest): Promise<CreateOutcom
   const created = unwrapCreated(await request.agents.create({
     sessionId: newSessionId(),
     ...(meta === undefined ? {} : { meta }),
+    ...(request.agentOptions === undefined ? {} : { agentOptions: request.agentOptions }),
   }))
   if (created.dispose !== undefined) await created.dispose()
   return { status: 'created', sessionId: created.agent.id }
@@ -154,6 +157,7 @@ export async function forkThread(request: ForkRequest): Promise<ForkOutcome> {
     },
     inheritedEventCount: brandNumber<SessionLogOffset>(prefix),
     seed,
+    ...(request.agentOptions === undefined ? {} : { agentOptions: request.agentOptions }),
   }))
   if (created.dispose !== undefined) await created.dispose()
   return { status: 'forked', sessionId: created.agent.id, inheritedEvents: prefix, atSeq }

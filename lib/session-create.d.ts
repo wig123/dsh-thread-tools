@@ -4,7 +4,7 @@
  *
  * @module @wig123/dsh-thread-tools/session-create
  */
-import type { AgentRegistry } from '@deepseek-ai/dsh-agent';
+import type { AgentOptions, AgentRegistry } from '@deepseek-ai/dsh-agent';
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session';
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence';
 /**
@@ -50,6 +50,8 @@ export interface CreateRequest {
     readonly cwd?: string;
     /** Agent preset for a fresh session; omit to let the deployment choose. */
     readonly agentPreset?: string;
+    /** Model route the new session starts on; omit to let the deployment choose. */
+    readonly agentOptions?: AgentOptions;
 }
 /** Fork request. */
 export interface ForkRequest extends CreateRequest {

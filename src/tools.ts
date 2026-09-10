@@ -15,7 +15,16 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 
 import { asSessionId, deliverThreadMessage } from './relay.js'
 import { createThread, forkThread } from './session-create.js'
-import { collectThreads, searchThreads, servicesFor, type ThreadSessionItem, type ThreadToolServices } from './session-state.js'
+import { readLatestReply } from './session-reply.js'
+import {
+  collectThreads,
+  isTopLevelSession,
+  listSessionHeaders,
+  searchThreads,
+  servicesFor,
+  type ThreadSessionItem,
+  type ThreadToolServices,
+} from './session-state.js'
 
 /** Resolved deployment policy for the thread tools. */
 export interface ThreadToolsConfig {
@@ -29,6 +38,8 @@ export interface ThreadToolsConfig {
   readonly createToolName: string
   /** Registered name of the session fork tool. */
   readonly forkToolName: string
+  /** Registered name of the reply reading tool. */
+  readonly replyToolName: string
   /** Default maximum rows returned by one listing call. */
   readonly defaultLimit: number
   /** Hard maximum rows one call may request; bounds the prompt cost of a listing. */
@@ -41,6 +52,12 @@ export interface ThreadToolsConfig {
   readonly maxMessageChars: number
   /** Upper bound on the seed a fork may inherit from one source session. */
   readonly maxForkSeedChars: number
+  /** Default wait, in milliseconds, for a target to finish before its reply is read. */
+  readonly defaultReplyWaitMs: number
+  /** Hard cap on the wait one reply call may request. */
+  readonly maxReplyWaitMs: number
+  /** Bound on the reply text returned to the model. */
+  readonly maxReplyChars: number
 }
 
 /** Default policy; a deployment overrides these through plugin config. */
@@ -50,12 +67,16 @@ export const DEFAULT_THREAD_TOOLS_CONFIG: ThreadToolsConfig = Object.freeze({
   sendToolName: 'thread_send',
   createToolName: 'thread_create',
   forkToolName: 'thread_fork',
+  replyToolName: 'thread_reply',
   defaultLimit: 30,
   maxLimit: 200,
   defaultSearchLimit: 20,
   maxSearchLimit: 100,
   maxMessageChars: 8000,
   maxForkSeedChars: 2_000_000,
+  defaultReplyWaitMs: 30_000,
+  maxReplyWaitMs: 120_000,
+  maxReplyChars: 4000,
 })
 
 /** One row of the thread listing result. */
@@ -96,6 +117,16 @@ interface ThreadCreateValue {
   status: 'created' | 'rejected'
   sessionId?: string
   reason?: string
+}
+
+/** Canonical result of the reply reading tool. */
+interface ThreadReplyValue {
+  status: 'reply' | 'no-reply' | 'unknown-session' | 'self' | 'subagent-session'
+  targetSessionId: string
+  text?: string
+  truncated?: boolean
+  turn?: number
+  seq?: number
 }
 
 /** Canonical result of the session fork tool. */
@@ -187,6 +218,23 @@ const THREAD_CREATE_SCHEMA = {
   },
 }
 
+const THREAD_REPLY_SCHEMA = {
+  type: 'object' as const,
+  additionalProperties: true,
+  properties: {
+    status: {
+      type: 'string' as const,
+      required: true as const,
+      enum: ['reply', 'no-reply', 'unknown-session', 'self', 'subagent-session'],
+    },
+    targetSessionId: { type: 'string' as const, required: true as const },
+    text: { type: 'string' as const, description: 'Text of the target latest assistant message.' },
+    truncated: { type: 'boolean' as const, description: 'Whether the text was cut at the deployment bound.' },
+    turn: { type: 'integer' as const, description: 'Turn the reply belongs to.' },
+    seq: { type: 'integer' as const, description: 'Event sequence of the reply.' },
+  },
+}
+
 const THREAD_FORK_SCHEMA = {
   type: 'object' as const,
   additionalProperties: true,
@@ -224,6 +272,18 @@ const FORK_PARAMETERS = {
   at_seq: {
     type: 'integer' as const,
     description: 'Exclusive event-sequence bound; the fork keeps completed turns before it. Omit to keep every completed turn.',
+  },
+}
+
+const REPLY_PARAMETERS = {
+  session_id: {
+    type: 'string' as const,
+    required: true as const,
+    description: 'Exact target session id as reported by the thread listing tool.',
+  },
+  wait_ms: {
+    type: 'integer' as const,
+    description: 'How long to wait for the target to finish its current turn before reading, capped by the deployment maximum.',
   },
 }
 
@@ -363,6 +423,21 @@ function renderFork(value: ThreadForkValue): string {
       return `Session ${value.sourceSessionId} has no completed turn to fork.`
     case 'rejected':
       return `The session was not forked: ${value.reason}`
+  }
+}
+
+function renderReply(value: ThreadReplyValue): string {
+  switch (value.status) {
+    case 'reply':
+      return `Latest message from session ${value.targetSessionId} (turn ${String(value.turn)}, seq ${String(value.seq)}):\n${value.text ?? ''}`
+    case 'no-reply':
+      return `Session ${value.targetSessionId} has not produced an assistant message yet.`
+    case 'unknown-session':
+      return `No session with id ${value.targetSessionId} exists.`
+    case 'self':
+      return 'That session is the one you are running in.'
+    case 'subagent-session':
+      return `Session ${value.targetSessionId} belongs to a subagent, so it is not addressable as a thread.`
   }
 }
 
@@ -552,6 +627,7 @@ export function createThreadToolDefinitions(config: ThreadToolsConfig): ToolDefi
       const services = requireServices(exec)
       const caller = callerSessionId(exec)
       if (caller === undefined) throw new Error('This tool needs a calling session; agentless calls are not supported.')
+      const route = services.agents.get(caller)?.options
       try {
         const outcome = await createThread({
           agents: services.agents,
@@ -559,6 +635,7 @@ export function createThreadToolDefinitions(config: ThreadToolsConfig): ToolDefi
           callerSessionId: caller,
           ...(cwd === undefined ? {} : { cwd }),
           ...(agentPreset === undefined ? {} : { agentPreset }),
+          ...(route === undefined ? {} : { agentOptions: route }),
         })
         return outcome.status === 'created'
           ? { status: 'created' as const, sessionId: outcome.sessionId }
@@ -589,6 +666,7 @@ export function createThreadToolDefinitions(config: ThreadToolsConfig): ToolDefi
       const caller = callerSessionId(exec)
       if (caller === undefined) throw new Error('This tool needs a calling session; agentless calls are not supported.')
       const source = asSessionId(sourceId)
+      const route = services.agents.get(caller)?.options
       const outcome = await forkThread({
         agents: services.agents,
         sessions: services.sessions,
@@ -596,6 +674,7 @@ export function createThreadToolDefinitions(config: ThreadToolsConfig): ToolDefi
         sourceSessionId: source,
         maxSeedChars: config.maxForkSeedChars,
         ...(atSeq === undefined ? {} : { atSeq }),
+        ...(route === undefined ? {} : { agentOptions: route }),
       })
       switch (outcome.status) {
         case 'forked':
@@ -614,5 +693,52 @@ export function createThreadToolDefinitions(config: ThreadToolsConfig): ToolDefi
     },
   })
 
-  return [listTool, searchTool, sendTool, createTool, forkTool]
+
+  const replyTool = defineTool({
+    name: config.replyToolName,
+    description: [
+      'Read the latest assistant message of another session by id, optionally waiting first for that session to finish its current turn.',
+      'Use this after sending a message when you need to know what the target answered; delivery alone never returns a reply.',
+      'A target that has only run tools so far reports that it has no reply yet.',
+    ].join(' '),
+    parameters: REPLY_PARAMETERS,
+    output: {
+      schema: THREAD_REPLY_SCHEMA,
+      render: (_args, value: ThreadReplyValue) => [{ type: 'text', text: renderReply(value) }],
+    },
+    async execute(args, exec) {
+      const targetId = typeof args.session_id === 'string' ? args.session_id.trim() : ''
+      if (targetId.length === 0) throw new Error('The target session id must not be empty.')
+      const wait = clampLimit(args.wait_ms, config.defaultReplyWaitMs, config.maxReplyWaitMs)
+      const services = requireServices(exec)
+      const caller = callerSessionId(exec)
+      if (caller === undefined) throw new Error('This tool needs a calling session; agentless calls are not supported.')
+      const target = asSessionId(targetId)
+      if (target === caller) return { status: 'self' as const, targetSessionId: targetId }
+      const header = (await listSessionHeaders(services.sessions, exec.signal)).find(entry => entry.id === target)
+      if (header === undefined) return { status: 'unknown-session' as const, targetSessionId: targetId }
+      if (!isTopLevelSession(header)) return { status: 'subagent-session' as const, targetSessionId: targetId }
+
+      const agent = services.agents.get(target)
+      if (agent !== undefined && wait > 0) {
+        const deadline = Date.now() + wait
+        while (agent.status !== 'idle' && Date.now() < deadline) {
+          await new Promise(resolve => setTimeout(resolve, 250))
+        }
+      }
+      const reply = await readLatestReply(services.sessions, target, config.maxReplyChars)
+      return reply === undefined
+        ? { status: 'no-reply' as const, targetSessionId: targetId }
+        : {
+            status: 'reply' as const,
+            targetSessionId: targetId,
+            text: reply.text,
+            truncated: reply.truncated,
+            turn: reply.turn,
+            seq: reply.seq,
+          }
+    },
+  })
+
+  return [listTool, searchTool, sendTool, createTool, forkTool, replyTool]
 }

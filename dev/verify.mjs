@@ -17,7 +17,17 @@ const dshInstall = process.env.DSH_INSTALL_DIR ?? '/Users/oneway/.npm-global/lib
 const home = process.env.DSH_HOME ?? join(process.env.HOME ?? '', '.dsh')
 const profileDir = join(home, 'profiles', profileName)
 
+import {
+  STUB_MODEL,
+  STUB_PROVIDER,
+  TARGET_MODEL,
+  TARGET_PROVIDER,
+  scriptedTargetAdapter,
+  scriptedThreadAdapter,
+} from './stub-adapter.mjs'
+
 const boot = await import('@deepseek-ai/dsh-app-boot')
+const llm = await import('@deepseek-ai/dsh-llm')
 const brand = await import('@deepseek-ai/dsh-brand')
 
 const profile = boot.loadProfile('verify', profileName, join(dshInstall, 'package.json'), home)
@@ -55,6 +65,7 @@ try {
     const handle = await ctx.agents.create({
       sessionId: brand.brandString(`verify-${Date.now()}-${Math.random().toString(16).slice(2)}`),
       meta: { cwd },
+      agentOptions: { provider: STUB_PROVIDER, model: STUB_MODEL },
     })
     dispose.push(handle)
     return handle.agent
@@ -64,6 +75,55 @@ try {
   const target = await create(process.cwd())
   console.log(`source=${source.id}\ntarget=${target.id}\n`)
 
+  // --- drive the tools the way the harness does: through a real model request ---
+  const seenTools = []
+  ctx.llm.registerAdapter([STUB_PROVIDER], scriptedThreadAdapter(target.id, seenTools))
+  // The session the model messages draws from this adapter, so its answer is
+  // scripted independently of the driver's request sequence.
+  ctx.llm.registerAdapter([TARGET_PROVIDER], scriptedTargetAdapter('Acknowledged from the scripted target.', seenTools))
+  // Only the target session is rerouted; the driver keeps its own adapter so the
+  // two sessions' request sequences cannot interleave.
+  ctx.on('agent/request', async (payload, next) => {
+    const config = await next()
+    if (payload.agent.id !== target.id) return config
+    return { ...config, provider: TARGET_PROVIDER, model: TARGET_MODEL }
+  })
+  // A session created by the plugin carries no model of its own, so the harness
+  // supplies the scripted route for any request that has none.
+  const driven = await ctx.agents.create({
+    sessionId: brand.brandString(`verify-model-${Date.now()}`),
+    meta: { cwd: process.cwd() },
+    agentOptions: { provider: STUB_PROVIDER, model: STUB_MODEL },
+  })
+  dispose.push(driven)
+  driven.agent.followup(llm.createUserMessage({
+    content: [{ type: 'text', text: 'Find the session and send it a message.' }],
+    source: { kind: 'user' },
+  }))
+  // The scripted model answers instantly; wait for its third request rather than
+  // for one status transition, since the loop goes idle between tool batches.
+  for (let waited = 0; waited < 180_000; waited += 250) {
+    await new Promise(resolve => setTimeout(resolve, 250))
+    if (seenTools.includes('final')) break
+  }
+  record(
+    'a real model request drives the tools through the agent loop',
+    ['thread_list', 'thread_send', 'thread_reply'].every(step => seenTools.includes(step)),
+    `scripted requests: ${seenTools.join(' -> ')}`,
+  )
+  record('the driven turn reached a final answer', seenTools.includes('final'), `requests=${seenTools.length}`)
+  // The reply text reaches the model as a tool result of the driven session; its
+  // own log is the authority on what the loop actually handed back.
+  const drivenEvents = (await ctx.sessionPersistence.inspect(driven.agent.id)).events
+  const replyEvent = drivenEvents.find(event => event.type === 'tool/result'
+    && event.data?.message?.source?.callId === 'verify-call-3')
+  const replyText = JSON.stringify(replyEvent?.data?.message?.content ?? '')
+  record(
+    'the model-issued reply tool returns the target text',
+    replyText.includes('Acknowledged from the scripted target.'),
+    `driven-session tool result: ${replyText.slice(0, 200)}`,
+  )
+  await new Promise(resolve => setTimeout(resolve, 1500))
   // The plugin registers scoped tools through the caller's own ctx; resolve the
   // definitions through the tool registry the way a model call would.
   const sourceTools = ctx.tools.schemas({ agent: source })
@@ -78,6 +138,7 @@ try {
   const forkName = names.find(name => name === 'thread_fork')
   record('plugin registers thread_create', createName === 'thread_create')
   record('plugin registers thread_fork', forkName === 'thread_fork')
+  record('plugin registers thread_reply', names.includes('thread_reply'))
   if (listName === undefined || sendName === undefined) throw new Error('thread tools are not registered')
 
   const callTool = async (agent, name, args) => {
@@ -132,6 +193,22 @@ try {
       ? `no relayed user/message observed on the target session (${relayed.length} other writes)`
       : relayedBody.text.slice(0, 180),
   )
+
+  // The model's own request reaches the same target; its body lands on the
+  // target's log once that session's loop admits the queued turn.
+  let modelRelayed
+  for (let waited = 0; waited < 30_000; waited += 250) {
+    modelRelayed = writes.find(entry => entry.sessionId === target.id && entry.text.includes('hello from the scripted model'))
+    if (modelRelayed !== undefined) break
+    await new Promise(resolve => setTimeout(resolve, 250))
+  }
+  console.log(`[dbg] target=${target.id} status=${target.status} writes=${JSON.stringify(writes.map(w => w.sessionId))}`)
+  record(
+    'a model-issued message lands on the target session log',
+    modelRelayed !== undefined,
+    modelRelayed === undefined ? 'the scripted model\'s message never reached the target log' : modelRelayed.text.slice(0, 140),
+  )
+
 
   // --- failure paths ---
   const unknown = await callTool(source, sendName, { session_id: 'session-does-not-exist', message: 'x' })

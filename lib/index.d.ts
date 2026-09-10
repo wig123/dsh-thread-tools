@@ -22,24 +22,32 @@ export declare const Config: Schema<Schemastery.ObjectS<{
     sendToolName: Schema<string, string>;
     createToolName: Schema<string, string>;
     forkToolName: Schema<string, string>;
+    replyToolName: Schema<string, string>;
     defaultLimit: Schema<number, number>;
     maxLimit: Schema<number, number>;
     defaultSearchLimit: Schema<number, number>;
     maxSearchLimit: Schema<number, number>;
     maxMessageChars: Schema<number, number>;
     maxForkSeedChars: Schema<number, number>;
+    defaultReplyWaitMs: Schema<number, number>;
+    maxReplyWaitMs: Schema<number, number>;
+    maxReplyChars: Schema<number, number>;
 }>, Schemastery.ObjectT<{
     listToolName: Schema<string, string>;
     searchToolName: Schema<string, string>;
     sendToolName: Schema<string, string>;
     createToolName: Schema<string, string>;
     forkToolName: Schema<string, string>;
+    replyToolName: Schema<string, string>;
     defaultLimit: Schema<number, number>;
     maxLimit: Schema<number, number>;
     defaultSearchLimit: Schema<number, number>;
     maxSearchLimit: Schema<number, number>;
     maxMessageChars: Schema<number, number>;
     maxForkSeedChars: Schema<number, number>;
+    defaultReplyWaitMs: Schema<number, number>;
+    maxReplyWaitMs: Schema<number, number>;
+    maxReplyChars: Schema<number, number>;
 }>>;
 /**
  * Resolve one deployment's effective policy from its committed config.
