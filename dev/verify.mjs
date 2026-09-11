@@ -141,6 +141,14 @@ try {
   record('plugin registers thread_reply', names.includes('thread_reply'))
   if (listName === undefined || sendName === undefined) throw new Error('thread tools are not registered')
 
+  // DEMO=1 prints the delivered surface and a live listing call, for use as
+  // evidence in a review.
+  if (process.env.DEMO === '1') {
+    const threadTools = ctx.tools.schemas({ agent: source }).filter(entry => entry.name.startsWith('thread_'))
+    console.log('tools registered in this profile:')
+    for (const entry of threadTools) console.log(`  ${entry.name}: ${entry.description.split('.')[0]}.`)
+  }
+
   const callTool = async (agent, name, args) => {
     const result = await ctx.tools.execute({
       callId: brand.brandString(`call-${Math.random().toString(16).slice(2)}`),
@@ -163,6 +171,10 @@ try {
   const listResult = await callTool(source, listName, { limit: 5 })
   const listValue = listResult.value ?? {}
   const listedIds = (listValue.sessions ?? []).map(row => row.sessionId)
+  if (process.env.DEMO === '1') {
+    console.log('\nthread_list output from a live call:')
+    console.log(listResult.content.map(block => (block.type === 'text' ? block.text : `[${block.type}]`)).join('\n'))
+  }
   record(
     'thread_list returns stored sessions',
     listedIds.length > 0 && listedIds.includes(target.id),

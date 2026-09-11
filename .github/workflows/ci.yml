@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Build, typecheck, and keyless tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: npm install --legacy-peer-deps
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test
+      - name: Check the committed build matches the sources
+        run: git diff --exit-code -- lib
