@@ -135,7 +135,7 @@ export async function forkThread(request: ForkRequest): Promise<ForkOutcome> {
   if (header === undefined) return { status: 'unknown-session' }
   if (header.parentSession !== undefined || (header.delegationDepth ?? 0) > 0) return { status: 'subagent-session' }
 
-  const inspection = await request.sessions.inspect(request.sourceSessionId)
+  const inspection = await request.sessions.load(request.sourceSessionId)
   const prefix = completedTurnPrefix(inspection.events, request.atSeq)
   if (prefix === 0) return { status: 'no-completed-turn' }
   const seed = inspection.events.slice(0, prefix)

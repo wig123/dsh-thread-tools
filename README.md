@@ -129,7 +129,7 @@ Per-deployment, on the plugin row:
 
 - `@deepseek-ai/dsh-tools`, `@deepseek-ai/dsh-session-persistence`, `@deepseek-ai/dsh-agent`. The plugin row waits until they're mounted.
 - `@deepseek-ai/dsh-session-query` is optional, only for `thread_search`.
-- `sessionPersistence.list()` takes a signal on one release line and an options object on another. Both are handled.
+- The persistence service differs across release lines: `0.1.2-rc` reads a log through `load()`/`inspect()`, while the `0.1.5` line moved log access onto per-session handles. This package targets the `0.1.2-rc` line, which is what `dsh.engines.dsh` states and what it is verified against. `list()` takes a signal on one line and an options object on another, and both call shapes are handled.
 
 ## Verification
 
@@ -138,7 +138,7 @@ Per-deployment, on the plugin row:
 Two checks go further and run a real agent loop: `dev/stub-adapter.mjs` registers a scripted LLM adapter, so a model-driven turn runs **with no API key**. The scripted model lists sessions, messages one, and reads the reply; the harness confirms from durable state that the message landed and the reply came back.
 
 ```sh
-npm install --legacy-peer-deps && npm run build
+npm install && npm run build
 npm test                              # keyless: no dsh, no profile, no API key
 node dev/verify.mjs <profileName>     # integration: needs a profile with the plugin
 ```
@@ -161,7 +161,7 @@ Run against a store holding 274 sessions across 7 projects, and again on a separ
 ## Development
 
 ```sh
-npm install --legacy-peer-deps
+npm install
 npm run build        # tsc -> lib/
 npm run typecheck
 ```

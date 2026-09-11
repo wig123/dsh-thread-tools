@@ -6,7 +6,7 @@ Package: `@wig123/dsh-thread-tools`
 Repo: https://github.com/wig123/dsh-thread-tools
 Language: TypeScript, ESM, Node 22+
 License: MIT
-Host floor: `dsh.engines.dsh >= 0.1.2-rc.1`
+Host floor: `dsh.engines.dsh >=0.1.2-rc.1 <0.2`. Verified on the `0.1.2-rc` line; the `0.1.5` line moved session log access onto per-session handles, so this package does not claim that line.
 Install: `dsh plugin --profile web add @wig123/dsh-thread-tools`
 Git install: `dsh plugin --profile web add github:wig123/dsh-thread-tools`
 

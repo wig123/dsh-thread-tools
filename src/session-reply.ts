@@ -53,7 +53,9 @@ export async function readLatestReply(
   sessionId: SessionId,
   maxChars: number,
 ): Promise<ThreadReply | undefined> {
-  const inspection = await sessions.inspect(sessionId)
+  // `load` balances a log whose tail was interrupted, so the scan reads the same
+  // events the harness would replay.
+  const inspection = await sessions.load(sessionId)
   const events = inspection.events
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index]
