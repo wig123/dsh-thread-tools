@@ -140,10 +140,17 @@ Two checks go further and run a real agent loop: `dev/stub-adapter.mjs` register
 ```sh
 npm install && npm run build
 npm test                              # keyless: no dsh, no profile, no API key
-node dev/verify.mjs <profileName>     # integration: needs a profile with the plugin
 ```
 
 `npm test` is what CI runs, together with a typecheck, a build, and a check that the committed `lib/` still matches `src/`.
+
+The integration harness boots a real profile, so it needs a dsh installation to resolve against:
+
+```sh
+dev/link-profile-packages.sh          # point this checkout at ~/.dsh's packages
+node dev/verify.mjs <profileName>     # a profile with the plugin installed
+npm install                           # restore the repo's own dependencies
+```
 
 ```text
 24/24 checks passed

@@ -136,8 +136,16 @@ Migration is done — rebase before you continue.
 其中两条更进一步，跑的是真实 agent loop：`dev/stub-adapter.mjs` 注册一个脚本化 LLM adapter，因此**不需要 API key** 就能跑一轮模型驱动的调用。脚本模型先列会话、再给其中一个发消息、然后读回复；harness 从持久状态核对消息确实落到了目标、回复也确实回到了驱动方。
 
 ```sh
-npm install --legacy-peer-deps && npm run build
-node dev/verify.mjs <profileName>
+npm install && npm run build
+npm test                              # 无密钥：不需要 dsh、profile、API key
+```
+
+集成验证要启动真实 profile，因此需要能解析到本机 dsh 的包：
+
+```sh
+dev/link-profile-packages.sh          # 把本 checkout 指向 ~/.dsh 的包
+node dev/verify.mjs <profileName>     # 需要已安装本插件的 profile
+npm install                           # 恢复仓库自己的依赖
 ```
 
 ```text
