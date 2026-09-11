@@ -139,8 +139,11 @@ Two checks go further and run a real agent loop: `dev/stub-adapter.mjs` register
 
 ```sh
 npm install --legacy-peer-deps && npm run build
-node dev/verify.mjs <profileName>
+npm test                              # keyless: no dsh, no profile, no API key
+node dev/verify.mjs <profileName>     # integration: needs a profile with the plugin
 ```
+
+`npm test` is what CI runs, together with a typecheck, a build, and a check that the committed `lib/` still matches `src/`.
 
 ```text
 24/24 checks passed
