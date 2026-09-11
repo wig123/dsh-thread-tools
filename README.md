@@ -53,6 +53,8 @@ Node 22+ and `pnpm` on `PATH`. Verified against `dsh >= 0.1.2-rc.1`.
 
 Subagent sessions are filtered out everywhere. These tools are about the conversations you opened.
 
+![The six tools registered in a live profile, and a real thread_list call](docs/demo.svg)
+
 ## A real exchange
 
 ```text

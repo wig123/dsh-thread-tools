@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="470" viewBox="0 0 1080 470" role="img" aria-label="Terminal transcript: the six thread tools registered in a live profile, and a real thread_list call">
+  <rect width="1080" height="470" rx="10" fill="#0d1117"/>
+  <rect width="1080" height="34" rx="10" fill="#161b22"/>
+  <circle cx="22" cy="17" r="6" fill="#ff5f56"/>
+  <circle cx="44" cy="17" r="6" fill="#ffbd2e"/>
+  <circle cx="66" cy="17" r="6" fill="#27c93f"/>
+  <text x="540" y="22" fill="#8b949e" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12" text-anchor="middle">DEMO=1 node dev/verify.mjs probe-web-thread-tools</text>
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13.5" fill="#c9d1d9">
+    <text x="28" y="66" fill="#7ee787">tools registered in this profile:</text>
+    <text x="28" y="90"><tspan fill="#79c0ff">thread_list</tspan>: List the top-level sessions of this deployment, newest first,</text>
+    <text x="44" y="108">including sessions other than the one you are running in.</text>
+    <text x="28" y="132"><tspan fill="#79c0ff">thread_search</tspan>: Search the recorded content of the sessions in this deployment.</text>
+    <text x="28" y="156"><tspan fill="#79c0ff">thread_send</tspan>: Send a message to another session of this deployment by session id.</text>
+    <text x="28" y="180"><tspan fill="#79c0ff">thread_create</tspan>: Create one new empty top-level session and return its durable id.</text>
+    <text x="28" y="204"><tspan fill="#79c0ff">thread_fork</tspan>: Fork an existing session into a new one, inheriting its completed turns.</text>
+    <text x="28" y="228"><tspan fill="#79c0ff">thread_reply</tspan>: Read the latest assistant message of another session by id.</text>
+    <text x="28" y="268" fill="#7ee787">thread_list output from a live call:</text>
+    <text x="28" y="292">Sessions (5 shown of 321):</text>
+    <text x="28" y="316" fill="#8b949e">- id=verify-1789113411011-34a952b9bf69a title="verify-1789113411011-34a952b9bf69a"</text>
+    <text x="44" y="334" fill="#8b949e">created=2026-09-11T07:56:51.011Z cwd=/work/app state=live,current</text>
+    <text x="28" y="358" fill="#8b949e">- id=session-97c6bb3d-52dd-43de-90b8-0b6337cb504b title="session-97c6bb3d-52dd-43de-90b8-0b6337cb504b"</text>
+    <text x="44" y="376" fill="#8b949e">created=2026-09-11T07:56:49.330Z cwd=/work/app state=dormant</text>
+    <text x="28" y="402">A dormant session holds no live agent in this process, so only a live session</text>
+    <text x="28" y="420">accepts a message.</text>
+    <text x="28" y="450" fill="#7ee787">24/24 checks passed</text>
+  </g>
+</svg>
