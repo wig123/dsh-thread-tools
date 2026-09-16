@@ -129,7 +129,7 @@ Per-deployment, on the plugin row:
 
 - `@deepseek-ai/dsh-tools`, `@deepseek-ai/dsh-session-persistence`, `@deepseek-ai/dsh-agent`. The plugin row waits until they're mounted.
 - `@deepseek-ai/dsh-session-query` is optional, only for `thread_search`.
-- The persistence service differs across release lines: `0.1.2-rc` reads a log through `load()`/`inspect()`, while the `0.1.5` line moved log access onto per-session handles. This package targets the `0.1.2-rc` line, which is what `dsh.engines.dsh` states and what it is verified against. `list()` takes a signal on one line and an options object on another, and both call shapes are handled.
+- Durable session storage changed shape between release lines: `0.1.2-rc` reads a log through the service (`load()`/`inspect()`), while `0.1.5` opens a per-session handle (`open(id, 'read')`). Both are supported; the difference lives in `src/store-access.ts`. `list()` also takes a bare signal on one line and an options object on the other. `dsh.engines.dsh` covers `>=0.1.2-rc.1 <0.1.6`.
 
 ## Verification
 
@@ -157,6 +157,18 @@ npm install                           # restore the repo's own dependencies
 ```
 
 Run against a store holding 274 sessions across 7 projects, and again on a separate profile that installed the package with `github:wig123/dsh-thread-tools` — that second run is the one showing someone else can install and use it.
+
+The store access is verified on both host lines. `dev/verify-0.1.5/verify15.mjs` mounts the same plugin over an installation of the 0.1.5 line and checks that listing, log reading, session creation, and delivery all work there:
+
+```sh
+cd <a-directory-whose-sessions-the-checks-should-read>
+DSH15_INSTALL=<install>/node_modules/@deepseek-ai/dsh DSH15_HOME=<harness-home> \
+  node dev/verify-0.1.5/verify15.mjs <profile>
+```
+
+```text
+6/6 checks passed
+```
 
 ## Limits
 

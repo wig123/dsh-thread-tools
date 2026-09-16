@@ -13,9 +13,17 @@ import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence';
  */
 export declare function newSessionId(): SessionId;
 /** Outcome of one creation attempt. */
+/** One created Agent plus the handle the registry returned for it. */
+export interface CreatedThread {
+    /** Durable identity of the new session. */
+    readonly sessionId: string;
+    /** Disposer for the registry handle, when the registry returned one. */
+    readonly dispose?: () => Promise<void>;
+}
 export type CreateOutcome = {
     readonly status: 'created';
     readonly sessionId: string;
+    readonly handle: CreatedThread;
 } | {
     readonly status: 'rejected';
     readonly reason: string;
@@ -26,6 +34,7 @@ export type ForkOutcome = {
     readonly sessionId: string;
     readonly inheritedEvents: number;
     readonly atSeq: number;
+    readonly handle: CreatedThread;
 } | {
     readonly status: 'unknown-session';
 } | {

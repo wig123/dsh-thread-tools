@@ -127,7 +127,7 @@ Migration is done — rebase before you continue.
 
 - `@deepseek-ai/dsh-tools`、`@deepseek-ai/dsh-session-persistence`、`@deepseek-ai/dsh-agent`。没挂上之前，插件的行不会激活。
 - `@deepseek-ai/dsh-session-query` 是可选的，只给 `thread_search` 用。
-- 持久化服务在不同发布线上接口不同：`0.1.2-rc` 用 `load()` / `inspect()` 读日志，`0.1.5` 线把日志访问挪到了每会话的 handle 上。本包针对 `0.1.2-rc` 线，`dsh.engines.dsh` 声明的就是它，实际验证也在它上面。`list()` 在一条线上收 signal、另一条收 options 对象，两种调用形态都做了兼容。
+- 持久化服务在不同发布线上接口不同：`0.1.2-rc` 通过服务本身读日志（`load()` / `inspect()`），`0.1.5` 改成打开每会话 handle（`open(id, 'read')`）。两条线都支持，差异集中在 `src/store-access.ts`。`list()` 在一条线上收 signal、另一条收 options 对象，两种形态也都做了兼容。`dsh.engines.dsh` 覆盖 `>=0.1.2-rc.1 <0.1.6`。
 
 ## 验证
 

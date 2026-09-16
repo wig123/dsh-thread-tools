@@ -7,6 +7,8 @@
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 
+import { loadStoredSession } from './store-access.js'
+
 /** One reply read from a target session's log. */
 export interface ThreadReply {
   /** Text of the target's latest assistant message, truncated to the caller's bound. */
@@ -53,10 +55,9 @@ export async function readLatestReply(
   sessionId: SessionId,
   maxChars: number,
 ): Promise<ThreadReply | undefined> {
-  // `load` balances a log whose tail was interrupted, so the scan reads the same
-  // events the harness would replay.
-  const inspection = await sessions.load(sessionId)
-  const events = inspection.events
+  const stored = await loadStoredSession(sessions, sessionId)
+  if (stored === undefined) return undefined
+  const events = stored.events
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index]
     if (event === undefined || event.type !== 'assistant/message') continue

@@ -11,6 +11,8 @@ import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { brandNumber, brandString } from '@deepseek-ai/dsh-brand'
 import type { SessionLogOffset } from '@deepseek-ai/dsh-session'
 
+import { loadStoredSession } from './store-access.js'
+
 /**
  * Mint an identity for a new session.
  * @returns a fresh session id in the harness's own shape.
@@ -20,13 +22,21 @@ export function newSessionId(): SessionId {
 }
 
 /** Outcome of one creation attempt. */
+/** One created Agent plus the handle the registry returned for it. */
+export interface CreatedThread {
+  /** Durable identity of the new session. */
+  readonly sessionId: string
+  /** Disposer for the registry handle, when the registry returned one. */
+  readonly dispose?: () => Promise<void>
+}
+
 export type CreateOutcome =
-  | { readonly status: 'created'; readonly sessionId: string }
+  | { readonly status: 'created'; readonly sessionId: string; readonly handle: CreatedThread }
   | { readonly status: 'rejected'; readonly reason: string }
 
 /** Outcome of one fork attempt. */
 export type ForkOutcome =
-  | { readonly status: 'forked'; readonly sessionId: string; readonly inheritedEvents: number; readonly atSeq: number }
+  | { readonly status: 'forked'; readonly sessionId: string; readonly inheritedEvents: number; readonly atSeq: number; readonly handle: CreatedThread }
   | { readonly status: 'unknown-session' }
   | { readonly status: 'self' }
   | { readonly status: 'subagent-session' }
@@ -63,9 +73,11 @@ export interface ForkRequest extends CreateRequest {
  * Read the live Agent a creation handle exposes.
  *
  * One DSH release line returns an owned handle and another returns the Agent
- * itself, so the handle is unwrapped when present.
+ * itself, so the handle is unwrapped when present. The caller keeps the new
+ * Agent published: a created session that were torn down immediately would be
+ * dormant, and therefore not addressable by the very tools that just made it.
  * @param created - value returned by the agent registry's `create`.
- * @returns the new Agent and an optional disposer for its handle.
+ * @returns the new Agent and its handle disposer, when the registry returned one.
  */
 function unwrapCreated(created: unknown): { agent: Agent; dispose?: () => Promise<void> } {
   const holder = created as { readonly agent?: Agent; readonly dispose?: () => Promise<void> }
@@ -96,8 +108,11 @@ export async function createThread(request: CreateRequest): Promise<CreateOutcom
     ...(meta === undefined ? {} : { meta }),
     ...(request.agentOptions === undefined ? {} : { agentOptions: request.agentOptions }),
   }))
-  if (created.dispose !== undefined) await created.dispose()
-  return { status: 'created', sessionId: created.agent.id }
+  return {
+    status: 'created',
+    sessionId: created.agent.id,
+    handle: { sessionId: created.agent.id, ...(created.dispose === undefined ? {} : { dispose: created.dispose }) },
+  }
 }
 
 /**
@@ -135,10 +150,11 @@ export async function forkThread(request: ForkRequest): Promise<ForkOutcome> {
   if (header === undefined) return { status: 'unknown-session' }
   if (header.parentSession !== undefined || (header.delegationDepth ?? 0) > 0) return { status: 'subagent-session' }
 
-  const inspection = await request.sessions.load(request.sourceSessionId)
-  const prefix = completedTurnPrefix(inspection.events, request.atSeq)
+  const stored = await loadStoredSession(request.sessions, request.sourceSessionId)
+  if (stored === undefined) return { status: 'unknown-session' }
+  const prefix = completedTurnPrefix(stored.events, request.atSeq)
   if (prefix === 0) return { status: 'no-completed-turn' }
-  const seed = inspection.events.slice(0, prefix)
+  const seed = stored.events.slice(0, prefix)
   const seedChars = JSON.stringify(seed).length
   if (seedChars > request.maxSeedChars) {
     return {
@@ -159,6 +175,11 @@ export async function forkThread(request: ForkRequest): Promise<ForkOutcome> {
     seed,
     ...(request.agentOptions === undefined ? {} : { agentOptions: request.agentOptions }),
   }))
-  if (created.dispose !== undefined) await created.dispose()
-  return { status: 'forked', sessionId: created.agent.id, inheritedEvents: prefix, atSeq }
+  return {
+    status: 'forked',
+    sessionId: created.agent.id,
+    inheritedEvents: prefix,
+    atSeq,
+    handle: { sessionId: created.agent.id, ...(created.dispose === undefined ? {} : { dispose: created.dispose }) },
+  }
 }

@@ -10,6 +10,8 @@ import type { SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionQueryEngine, SessionRecord } from '@deepseek-ai/dsh-session-query'
 
+import { listStoredHeaders } from './store-access.js'
+
 /**
  * A persisted session is addressable as a thread when nothing created it as a
  * subagent child. Depth-zero sessions without a recorded parent are top-level
@@ -37,11 +39,6 @@ export type ThreadQueryEngine = Pick<SessionQueryEngine, 'searchSessions'> & {
 
 /**
  * Read every stored session header.
- *
- * The persistence service lists either bare headers or per-log snapshots
- * carrying revision tokens, depending on the DSH release line, and the
- * cancellable form takes a signal on one line and an options object on the
- * other. This normalizes both into headers so the tools hold one shape.
  * @param persistence - durable session store.
  * @param signal - cancellation for the backend listing work.
  * @returns one header per stored session.
@@ -50,43 +47,7 @@ export async function listSessionHeaders(
   persistence: SessionPersistence,
   signal?: AbortSignal,
 ): Promise<SessionHeader[]> {
-  const listed = await callPersistedList(persistence, signal)
-  if (!Array.isArray(listed)) return []
-  const headers: SessionHeader[] = []
-  for (const entry of listed as readonly unknown[]) {
-    if (entry === null || typeof entry !== 'object') continue
-    const candidate = entry as { readonly id?: unknown; readonly header?: unknown }
-    if (typeof candidate.id === 'string') headers.push(entry as SessionHeader)
-    else if (candidate.header !== null && typeof candidate.header === 'object') headers.push(candidate.header as SessionHeader)
-  }
-  return headers
-}
-
-/**
- * Call the persistence listing with the call shape this release line expects.
- *
- * One DSH line takes the cancellation signal as the only argument and another
- * takes an options object carrying it; a wrong shape fails inside the backend
- * with a guard error rather than at the call site, so the unsupported shape is
- * detected by trying the other one.
- * @param persistence - durable session store.
- * @param signal - cancellation for the backend listing work.
- * @returns whatever the backend returned, normalized by the caller.
- */
-async function callPersistedList(persistence: SessionPersistence, signal?: AbortSignal): Promise<unknown> {
-  const list = persistence.list as unknown as (options?: unknown) => Promise<unknown>
-  const attempts: readonly (() => Promise<unknown>)[] = signal === undefined
-    ? [() => list()]
-    : [() => list(signal), () => list({ signal })]
-  let lastError: unknown
-  for (const attempt of attempts) {
-    try {
-      return await attempt()
-    } catch (error) {
-      lastError = error
-    }
-  }
-  throw lastError
+  return listStoredHeaders(persistence, signal)
 }
 
 /**

@@ -32,11 +32,6 @@ export type ThreadQueryEngine = Pick<SessionQueryEngine, 'searchSessions'> & {
 };
 /**
  * Read every stored session header.
- *
- * The persistence service lists either bare headers or per-log snapshots
- * carrying revision tokens, depending on the DSH release line, and the
- * cancellable form takes a signal on one line and an options object on the
- * other. This normalizes both into headers so the tools hold one shape.
  * @param persistence - durable session store.
  * @param signal - cancellation for the backend listing work.
  * @returns one header per stored session.
